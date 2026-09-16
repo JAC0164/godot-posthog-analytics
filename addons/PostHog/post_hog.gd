@@ -87,12 +87,21 @@ func capture_exception(type: String, message: String, stacktrace: String = "", e
 
 ## Sends a log record to PostHog Logs (OTLP JSON via /i/v1/logs).
 ## `level` must be a LogLevel value. `attributes` are extra OTLP attributes.
+## Always adds `posthogDistinctId` / `sessionId` attributes so log lines are
+## linked to the person and session in PostHog (recommended by the docs).
 func log(message: String, level: int = LogLevel.INFO, attributes: Dictionary = {}) -> void:
 	if not enabled or OS.has_feature("web"):
 		return
 	if _config.log_url.is_empty() or level < min_log_level:
 		return
-	var payload := HOGQL_LOG.build(message, level, attributes, app_name, ProjectSettings.get_setting("application/config/version", ""))
+	var attrs := attributes.duplicate()
+	var did := distinct_id()
+	if not did.is_empty():
+		attrs["posthogDistinctId"] = did
+	var sid := session_id()
+	if not sid.is_empty():
+		attrs["sessionId"] = sid
+	var payload := HOGQL_LOG.build(message, level, attrs, app_name, ProjectSettings.get_setting("application/config/version", ""))
 	var headers := _json_headers()
 	headers.append("Authorization: Bearer " + _config.api_key)
 	_transport.send_json(_config.log_url, headers, payload)
