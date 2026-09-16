@@ -21,12 +21,10 @@ func load() -> void:
 		user_file.close()
 	distinct_id = data.id
 
-## Create an 8 letter UUID.
+## Create a 128-bit hex UUID string (128 bits of entropy, negligible collisions).
 static func uuid() -> String:
-	var start := "A".to_ascii_buffer()[0]
-	var letters: Array = []
-	for i in 8:
-		var j := randi() % 26
-		var letter := char(start + j)
-		letters.append(letter)
-	return "".join(letters)
+	var hex_chars := "0123456789abcdef"
+	var out := ""
+	for i in 32:
+		out += hex_chars[randi() % 16]
+	return out

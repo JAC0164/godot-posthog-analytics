@@ -69,16 +69,20 @@ func _ready() -> void:
 func capture(event_name: String, properties: Dictionary = {}) -> void:
 	if not enabled:
 		return
-	_inject_session_id(properties)
-	var data := PostHogCapture.build(event_name, properties, auto_include_properties, distinct_id(), _config.api_key)
+	var props := properties.duplicate()
+	_inject_session_id(props)
+	var data := PostHogCapture.build(event_name, props, auto_include_properties, distinct_id(), _config.api_key)
+	data["timestamp"] = _now_iso()
 	_transport.send_json(_config.capture_url, _json_headers(), data)
 
 ## Sends an exception to PostHog Error Tracking (as a `$exception` capture event).
 func capture_exception(type: String, message: String, stacktrace: String = "", extra: Dictionary = {}) -> void:
 	if not enabled:
 		return
-	_inject_session_id(extra)
-	var data := PostHogErrorTracking.build(type, message, stacktrace, extra, auto_include_properties, distinct_id(), _config.api_key)
+	var extra_copy := extra.duplicate()
+	_inject_session_id(extra_copy)
+	var data := PostHogErrorTracking.build(type, message, stacktrace, extra_copy, auto_include_properties, distinct_id(), _config.api_key)
+	data["timestamp"] = _now_iso()
 	_transport.send_json(_config.capture_url, _json_headers(), data)
 
 ## Sends a log record to PostHog Logs (OTLP JSON via /i/v1/logs).
@@ -102,6 +106,11 @@ func distinct_id() -> String:
 ## Current PostHog `$session_id` (empty when sessions are disabled).
 func session_id() -> String:
 	return _session.session_id() if _session else ""
+
+## ISO-8601 UTC timestamp for capture events. PostHog uses it as the event time;
+## without it, the server falls back to the ingestion time.
+static func _now_iso() -> String:
+	return Time.get_datetime_string_from_system(true, false) + "Z"
 
 ## Tracks app foreground state. While in the background the heartbeat is paused
 ## and an `$app_background` event marks the session end; on resume a fresh
