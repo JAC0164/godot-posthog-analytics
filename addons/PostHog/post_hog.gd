@@ -13,6 +13,9 @@ signal error_occurred(e: Error)
 signal api_response(response: Variant)
 
 var enabled := true
+## Debug mode: payloads are dumped locally (user://posthog_debug/*.jsonl) and
+## never sent. Mirrors `debug` in config.cfg after _ready().
+var debug := false
 ## https://posthog.com/docs/data/anonymous-vs-identified-events
 var anonymous_events := true:
 	set = _update_anonymous_events
@@ -38,10 +41,12 @@ func _ready() -> void:
 	_config = PostHogConfig.new()
 	_config.load()
 	enabled = _config.enabled
+	debug = _config.debug
 	_identity = PostHogIdentity.new()
 	_identity.load()
 	_transport = PostHogTransport.new()
 	_transport.name = "PostHogTransport"
+	_transport.debug = debug
 	add_child(_transport)
 	_transport.error_occurred.connect(error_occurred.emit)
 	_transport.api_response.connect(api_response.emit)

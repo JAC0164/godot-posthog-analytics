@@ -9,6 +9,8 @@ var api_key := ""
 var capture_url := ""
 var log_url := ""
 var enabled := true
+## Debug mode: when true, transport records payloads locally instead of sending.
+var debug := false
 
 ## Reads config.cfg (supabase-style). Disables analytics when the file is
 ## missing or apiKey/baseUrl are empty.
@@ -27,6 +29,7 @@ func load() -> bool:
 		print("Analytics disabled")
 		enabled = false
 		return false
+	debug = bool(config.get_value(CONFIG_SECTION, "debug", false))
 	capture_url = base_url.path_join("i/v0/e/")
 	log_url = base_url.path_join("i/v1/logs")
 	return enabled
