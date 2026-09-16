@@ -142,6 +142,42 @@ to
 PostHog.anonymous_events = false
 ```
 
+### Error tracking
+
+Send exceptions as `$exception` capture events (usable in the PostHog
+[Error Tracking](https://posthog.com/docs/error-tracking) section):
+
+```gdscript
+# type, message, optional stacktrace (parsed into frames), optional extra properties
+PostHog.capture_exception("ScriptError", "Failed to connect", "res://net.gd:42:in _connect")
+```
+
+The stacktrace is a multiline string; simple `filename:line[:in function]` lines
+are turned into stack frames. A SHA-256 `$exception_fingerprint` is derived from
+the type + message to group identical issues.
+
+### Logs (OpenTelemetry)
+
+PostHog ingests
+[logs](https://posthog.com/docs/logs) over OTLP JSON. This addon exposes a
+`log()` helper for the `https://<region>.i.posthog.com/i/v1/logs` endpoint:
+
+```gdscript
+# message, LogLevel, optional attributes
+PostHog.log("Connection lost", PostHog.LogLevel.ERROR, {"scene": "home", "retry": 3})
+```
+
+Available `LogLevel` values: `TRACE` (1), `DEBUG` (5), `INFO` (9), `WARN` (13),
+`ERROR` (17), `FATAL` (21) — matching the
+[OpenTelemetry severity scale](https://opentelemetry.io/docs/specs/otel/logs/data-model/).
+
+`min_log_level` discards records below a threshold (default `DEBUG`). `app_name`
+is sent as the OTLP `service.name` resource attribute, and the project version
+(`application/config/version`) as `service.version`.
+
+Log endpoints require an `Authorization: Bearer <project_token>` header, which
+this addon attaches automatically. Log calls are skipped on `web` builds.
+
 ## PostHog dashboards
 
 To see your metrics in PostHog, create a new
