@@ -4,7 +4,8 @@ extends Node
 enum LogLevel { TRACE = 1, DEBUG = 5, INFO = 9, WARN = 13, ERROR = 17, FATAL = 21 }
 
 const USER_FILE_PATH = "user://posthog_user.json"
-const APP_FILE_PATH = "res://posthog.json"
+const CONFIG_PATH = "res://addons/PostHog/config.cfg"
+const CONFIG_SECTION = "posthog/config"
 
 var api_key = ""
 var capture_url = ""
@@ -32,7 +33,7 @@ var auto_include_properties = {}
 
 func _ready() -> void:
 	_update_anonymous_events(anonymous_events)
-	_load_post_hog_json()
+	load_config()
 	_load_post_hog_user_json()
 	if include_platform:
 		auto_include_properties["platform"] = get_os_platform()
@@ -175,18 +176,21 @@ func _emit_response(body: PackedByteArray) -> void:
 	if json.parse(body.get_string_from_utf8()) == OK:
 		api_response.emit(json.data)
 
-func _load_post_hog_json():
-	if not FileAccess.file_exists(APP_FILE_PATH):
-		print(APP_FILE_PATH, ' not found')
+func load_config():
+	var config = ConfigFile.new()
+	var err := config.load(CONFIG_PATH)
+	if err != OK:
+		print(CONFIG_PATH, ' not found')
 		print('Analytics disabled')
 		enabled = false
 		return
-	var app_post_hog_file = FileAccess.open(APP_FILE_PATH, FileAccess.READ)
-	var app_data = app_post_hog_file.get_as_text()
-	app_post_hog_file.close()
-	app_data = JSON.parse_string(app_data)
-	api_key = app_data.api_key
-	var base_url: String = app_data.base_url
+	api_key = config.get_value(CONFIG_SECTION, "apiKey", "")
+	var base_url: String = config.get_value(CONFIG_SECTION, "baseUrl", "")
+	if api_key.is_empty() or base_url.is_empty():
+		print('posthog/config incomplete in ', CONFIG_PATH)
+		print('Analytics disabled')
+		enabled = false
+		return
 	capture_url = base_url.path_join('i/v0/e/')
 	log_url = base_url.path_join('i/v1/logs')
 
