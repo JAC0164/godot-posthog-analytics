@@ -35,7 +35,8 @@ func _dump(url: String, payload: Dictionary) -> void:
 	var date := Time.get_date_string_from_system()
 	var path := DEBUG_DIR.path_join("events_%s.jsonl" % date)
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DEBUG_DIR))
-	var file := FileAccess.open(path, FileAccess.WRITE)
+	# READ_WRITE keeps existing lines; WRITE is only used to create the file.
+	var file := FileAccess.open(path, FileAccess.READ_WRITE) if FileAccess.file_exists(path) else FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
 		push_warning("PostHog: cannot write debug dump %s" % path)
 		return
