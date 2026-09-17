@@ -1,7 +1,8 @@
 ## PostHog Analytics facade.
 ## Public API: PostHog.capture(), PostHog.capture_exception(), PostHog.log(),
-## PostHog.enabled, PostHog.anonymous_events, PostHog.auto_include_properties,
-## PostHog.session_id(),
+## PostHog.identify(), PostHog.enabled, PostHog.anonymous_events,
+## PostHog.auto_include_properties, PostHog.session_id(), PostHog.distinct_id(),
+## PostHog.is_identified(),
 ## signals error_occurred / api_response, enum PostHog.LogLevel.
 extends Node
 
@@ -9,6 +10,10 @@ const HOGQL_LOG := preload("res://addons/PostHog/logs/otlp_log.gd")
 
 ## Re-exposed so callers can use PostHog.LogLevel.ERROR.
 const LogLevel := HOGQL_LOG.LogLevel
+
+## Identifies this SDK in PostHog (`$lib` / `$lib_version`).
+const LIB_NAME := "godot-posthog"
+const LIB_VERSION := "1.1"
 
 signal error_occurred(e: Error)
 signal api_response(response: Variant)
@@ -27,6 +32,12 @@ var auto_include_properties := {}
 ## Whether the platform should be included in every event.
 @export var include_platform := true
 
+## Whether the reserved device/viewport/app properties (OS, device type,
+## screen/viewport size, `$lib`, channel attribution) are included in every
+## event. These are what PostHog's dashboards read for the OS / Device Type /
+## Viewport / Source columns; without them those columns stay empty/Unknown.
+@export var include_device_properties := true
+
 ## Service name sent with log records (used as OTLP `service.name` resource attribute).
 @export var app_name := "godot"
 
@@ -37,6 +48,12 @@ var _config: PostHogConfig
 var _identity: PostHogIdentity
 var _transport: PostHogTransport
 var _session: PostHogSession
+
+## Current foreground state. Guards against platforms (Android) that emit both
+## `NOTIFICATION_APPLICATION_*` and `NOTIFICATION_WM_WINDOW_FOCUS_*` for the
+## same transition, which would otherwise emit duplicate lifecycle events.
+## Starts false so the cold-start foreground transition still emits.
+var _app_is_foreground := false
 
 func _ready() -> void:
 	_update_anonymous_events(anonymous_events)
@@ -61,10 +78,12 @@ func _ready() -> void:
 	add_child(_session)
 	if _session.enabled:
 		_session.heartbeat_tick.connect(_on_heartbeat_tick)
-	if include_platform:
-		auto_include_properties["platform"] = get_os_platform()
 	if app_name.is_empty():
 		app_name = ProjectSettings.get_setting("application/config/name", "godot")
+	if include_platform:
+		auto_include_properties["platform"] = get_os_platform()
+	if include_device_properties:
+		_populate_auto_properties()
 
 func capture(event_name: String, properties: Dictionary = {}) -> void:
 	if not enabled:
@@ -74,6 +93,45 @@ func capture(event_name: String, properties: Dictionary = {}) -> void:
 	var data := PostHogCapture.build(event_name, props, auto_include_properties, distinct_id(), _config.api_key)
 	data["timestamp"] = _now_iso()
 	_transport.send_json(_config.capture_url, _json_headers(), data)
+
+## Identifies the user: sends the PostHog `$identify` event so the anonymous
+## device history is merged into the real user's profile, then switches the
+## local distinct_id to `new_distinct_id` (persisted, used for every event after).
+## `user_properties` become person properties (`$set`).
+## Returns false when disabled, the id is empty, or the user is already
+## identified with this id (no duplicate `$identify` on repeated logins).
+func identify(new_distinct_id: String, user_properties: Dictionary = {}) -> bool:
+	if not enabled or _identity == null or new_distinct_id.is_empty():
+		return false
+	var anon_id := _identity.distinct_id
+	if not _identity.set_identified(new_distinct_id):
+		return false
+	# From now on events belong to a real person (profiles processed server-side).
+	auto_include_properties["$process_person_profile"] = true
+	var props := {
+		"distinct_id": new_distinct_id,
+		"$set": user_properties.duplicate(),
+	}
+	if anon_id != new_distinct_id and not anon_id.is_empty():
+		props["$anon_distinct_id"] = anon_id
+	_inject_session_id(props)
+	var data := PostHogCapture.build("$identify", props, auto_include_properties, distinct_id(), _config.api_key)
+	data["timestamp"] = _now_iso()
+	_transport.send_json(_config.capture_url, _json_headers(), data)
+	return true
+
+## True once identify() has been called and persisted on this install.
+func is_identified() -> bool:
+	return _identity != null and _identity.has_identified
+
+## Resets identity to a fresh anonymous distinct_id and restores anonymous-event
+## person-processing. To be called on logout: the next session on this device
+## starts anonymous again instead of merging into the previous person.
+func reset() -> void:
+	if _identity == null:
+		return
+	_identity.reset()
+	auto_include_properties["$process_person_profile"] = !anonymous_events
 
 ## Sends an exception to PostHog Error Tracking (as a `$exception` capture event).
 func capture_exception(type: String, message: String, stacktrace: String = "", extra: Dictionary = {}) -> void:
@@ -135,12 +193,18 @@ func _on_heartbeat_tick(_session_id: String) -> void:
 	capture(_config.heartbeat_event_name)
 
 func _on_app_background() -> void:
+	if not _app_is_foreground:
+		return
+	_app_is_foreground = false
 	if not enabled or not _session or not _session.enabled:
 		return
 	_session.set_active(false)
 	capture(_config.app_background_event_name)
 
 func _on_app_foreground() -> void:
+	if _app_is_foreground:
+		return
+	_app_is_foreground = true
 	if not enabled or not _session or not _session.enabled:
 		return
 	_session.set_active(true)
@@ -158,6 +222,57 @@ func _update_anonymous_events(val: bool) -> void:
 
 func _json_headers() -> PackedStringArray:
 	return PackedStringArray(["Content-Type: application/json"])
+
+## Fills the reserved PostHog properties the dashboards rely on: OS / OS version,
+## device type, screen & viewport size, app name/version, SDK (`$lib`) and the
+## session channel attribution. Without these PostHog shows empty / "Unknown"
+## values (OS, Device Type, Viewport, Source channel type).
+func _populate_auto_properties() -> void:
+	auto_include_properties["$os"] = get_os_name()
+	auto_include_properties["$os_version"] = OS.get_version()
+	auto_include_properties["$device_type"] = get_device_type()
+	auto_include_properties["$app_name"] = app_name
+	auto_include_properties["$app_version"] = String(ProjectSettings.get_setting("application/config/version", ""))
+	auto_include_properties["$lib"] = LIB_NAME
+	auto_include_properties["$lib_version"] = LIB_VERSION
+
+	var tz := Time.get_time_zone_from_system()
+	var tz_name := String(tz.get("name", ""))
+	if not tz_name.is_empty():
+		auto_include_properties["$timezone"] = tz_name
+		auto_include_properties["$timezone_offset"] = -int(tz.get("bias", 0))
+
+	var viewport := get_viewport()
+	if viewport != null:
+		var viewport_size := viewport.get_visible_rect().size
+		if viewport_size.x > 0 and viewport_size.y > 0:
+			auto_include_properties["$viewport_width"] = int(viewport_size.x)
+			auto_include_properties["$viewport_height"] = int(viewport_size.y)
+
+	var screen_size := DisplayServer.screen_get_size()
+	if screen_size.x > 0 and screen_size.y > 0:
+		auto_include_properties["$screen_width"] = screen_size.x
+		auto_include_properties["$screen_height"] = screen_size.y
+
+	# App traffic has no web referrer: mark it as direct so PostHog computes the
+	# "Direct" channel type instead of "Unknown" for app sessions.
+	auto_include_properties["$referrer"] = "$direct"
+	auto_include_properties["$referring_domain"] = "$direct"
+
+## PostHog-friendly OS name (e.g. "Mac OS X" instead of Godot's "macOS").
+static func get_os_name() -> String:
+	match OS.get_name():
+		"macOS":
+			return "Mac OS X"
+		_:
+			return OS.get_name()
+
+## PostHog device type: "Mobile" or "Desktop".
+static func get_device_type() -> String:
+	if OS.has_feature("android") or OS.has_feature("ios") \
+			or OS.has_feature("web_android") or OS.has_feature("web_ios"):
+		return "Mobile"
+	return "Desktop"
 
 ## Grabs the host OS platform.
 static func get_os_platform() -> String:
