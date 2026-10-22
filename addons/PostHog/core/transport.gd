@@ -30,6 +30,31 @@ func send_json(url: String, headers: PackedStringArray, payload: Dictionary) -> 
 		request.queue_free()
 		error_occurred.emit(error)
 
+## POST that waits for the answer. Returns {"ok": bool, "code": int, "data": Variant};
+## `ok` is false on network error, non-2xx status, unparsable body, debug mode or empty url.
+func request_json(url: String, headers: PackedStringArray, payload: Dictionary) -> Dictionary:
+	var result := {"ok": false, "code": 0, "data": null}
+	if debug or url.is_empty():
+		return result
+	var request := HTTPRequest.new()
+	request.timeout = 10.0
+	add_child(request)
+	var error := request.request(url, headers, HTTPClient.METHOD_POST, JSON.stringify(payload))
+	if error != OK:
+		request.queue_free()
+		error_occurred.emit(error)
+		return result
+	var response: Array = await request.request_completed
+	request.queue_free()
+	result["code"] = int(response[1])
+	if int(response[0]) != HTTPRequest.RESULT_SUCCESS or result["code"] < 200 or result["code"] >= 300:
+		return result
+	var json := JSON.new()
+	if json.parse((response[3] as PackedByteArray).get_string_from_utf8()) == OK:
+		result["ok"] = true
+		result["data"] = json.data
+	return result
+
 ## Appends the payload as a JSON line to today's debug file. Never sent anywhere.
 func _dump(url: String, payload: Dictionary) -> void:
 	var date := Time.get_date_string_from_system()
