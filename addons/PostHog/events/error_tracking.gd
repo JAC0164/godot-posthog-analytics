@@ -15,7 +15,10 @@ static func build(event_type: String, message: String, stacktrace: String, extra
 		"mechanism": {"handled": true, "synthetic": false},
 		"stacktrace": parse_stacktrace(stacktrace),
 	}]
-	properties["$exception_fingerprint"] = (event_type + ":" + message).sha256_text()
+	# Fingerprint dérivé du message NORMALISÉ (valeurs dynamiques masquées) pour
+	# regrouper les variantes d'une même erreur ; le message brut reste dans
+	# `$exception_list[0].value` pour le debug.
+	properties["$exception_fingerprint"] = (event_type + ":" + normalize_for_fingerprint(message)).sha256_text()
 	properties["$exception_level"] = "error"
 	return {
 		"api_key": api_key,
@@ -23,6 +26,31 @@ static func build(event_type: String, message: String, stacktrace: String, extra
 		"event": "$exception",
 		"properties": properties,
 	}
+
+## Normalise un message d'erreur pour le calcul du fingerprint : masque les
+## valeurs fortement dynamiques (adresses mémoire Java `@<hex>`, UUID/hash hex,
+## nombres, espaces multiples) afin que les variantes d'une même erreur
+## produisent le MÊME fingerprint et soient regroupées côté PostHog.
+static func normalize_for_fingerprint(message: String) -> String:
+	var out := message
+	# Adresses objet Java/Kotlin : ...Address@5992df03 / @ee908016
+	out = _sub(out, r"[A-Za-z0-9_.]+@[0-9a-fA-F]{4,}", "<obj>")
+	# UUID : 8-4-4-4-12
+	out = _sub(out, r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "<uuid>")
+	# Hash hex long (>= 16) : fingerprints, ids dérivés
+	out = _sub(out, r"\b[0-9a-fA-F]{16,}\b", "<hex>")
+	# Nombres (codes HTTP, index, compteurs)
+	out = _sub(out, r"\b\d+\b", "<n>")
+	# Espaces multiples
+	out = _sub(out, r"\s+", " ")
+	return out.strip_edges()
+
+
+static func _sub(source: String, pattern: String, replacement: String) -> String:
+	var re := RegEx.new()
+	if re.compile(pattern) != OK:
+		return source
+	return re.sub(source, replacement, true)
 
 ## Parses "filename:lineno[:in function]" lines into PostHog stack frames.
 static func parse_stacktrace(stacktrace: String) -> Dictionary:

@@ -65,17 +65,20 @@ an organization. You can create one organization for each Godot project.
   [Autoload](https://docs.godotengine.org/en/stable/tutorials/scripting/singletons_autoload.html)
   with the name `PostHog`
 
-### posthog.json
+### config.cfg
 
-In your root project directory (`res://`), create a new file: `posthog.json`.
-There should be two keys in this file, `api_key` and `base_url`:
+Copy `addons/PostHog/config.example.cfg` to `addons/PostHog/config.cfg` and fill in
+`apiKey` and `baseUrl` (section `[posthog/config]`). Without both keys the plugin
+stays disabled and `capture()` does nothing.
 
-```json
-{
-  "api_key": "<POSTHOG_PROJECT_API_KEY>",
-  "base_url": "https://us.i.posthog.com"
-}
+```ini
+[posthog/config]
+apiKey="<POSTHOG_PROJECT_API_KEY>"
+baseUrl="https://eu.i.posthog.com"
+debug=false
 ```
+
+With `debug=true`, events are written to `user://posthog_debug/` instead of being sent.
 
 You can find your project API key under the PostHog organization's default
 project settings. Or try this url with your project ID:
@@ -85,11 +88,10 @@ https://us.posthog.com/project/<PROJECT_ID>/settings/project#variables
 ```
 
 > [!IMPORTANT]
-> If you plan on sharing your project code, it is recommended that you don't
-> share your PostHog project API key. Add `posthog.json` to your `.gitignore`
-> for public repositories.
+> `config.cfg` is git-ignored: never commit your project API key. In CI, write the
+> file from a secret before exporting.
 
-As of April 2025, your `base_url` should be either `https://us.i.posthog.com`
+As of April 2025, your `baseUrl` should be either `https://us.i.posthog.com`
 for US Cloud or `https://eu.i.posthog.com` for EU Cloud. From your project
 dashboard, the url should signal which Cloud you are using. See the
 [PostHog API endpoint documentation](https://posthog.com/docs/api/capture) to

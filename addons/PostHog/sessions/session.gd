@@ -19,6 +19,9 @@ var idle_timeout_seconds := 1800
 var max_session_seconds := 86400
 
 var enabled := true
+## Horloge en millisecondes (tests). Par défaut l'heure réelle : `Time.get_ticks_msec()` s'arrête
+## pendant la veille d'Android, une session restait alors ouverte toute la nuit.
+var clock := Callable()
 
 var _session_id := ""
 var _session_start_ms := 0
@@ -92,7 +95,9 @@ func _restart_timer() -> void:
 		_timer.timeout.connect(_on_heartbeat_timeout)
 
 func _now_ms() -> int:
-	return Time.get_ticks_msec()
+	if clock.is_valid():
+		return int(clock.call())
+	return int(Time.get_unix_time_from_system() * 1000.0)
 
 ## UUIDv7: 48-bit unix-ms timestamp, version 7, RFC 4122 variant.
 ## The timestamp is streamed most-significant first: group1 holds the high 32

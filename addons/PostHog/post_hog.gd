@@ -91,6 +91,7 @@ func _ready() -> void:
 		auto_include_properties["platform"] = get_os_platform()
 	if include_device_properties:
 		_populate_auto_properties()
+	auto_include_properties["is_dev_build"] = OS.has_feature("editor") or OS.is_debug_build()
 	if enabled and _config.flags_enabled:
 		if _flags.load_cache(distinct_id()):
 			feature_flags_loaded.emit.call_deferred()
