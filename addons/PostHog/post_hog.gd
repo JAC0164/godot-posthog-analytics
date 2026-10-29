@@ -92,6 +92,11 @@ func _ready() -> void:
 	if include_device_properties:
 		_populate_auto_properties()
 	auto_include_properties["is_dev_build"] = OS.has_feature("editor") or OS.is_debug_build()
+	# Identifiant d'appareil stable, propre à chaque jeu : le sel vient du réglage de
+	# projet `posthog/device_id_salt` (pas de propriété `device_id` sans lui).
+	var device_salt := str(ProjectSettings.get_setting("posthog/device_id_salt", ""))
+	if not device_salt.is_empty():
+		auto_include_properties["device_id"] = (OS.get_unique_id() + device_salt).sha256_text().substr(0, 16)
 	if enabled and _config.flags_enabled:
 		if _flags.load_cache(distinct_id()):
 			feature_flags_loaded.emit.call_deferred()

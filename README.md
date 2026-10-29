@@ -249,6 +249,13 @@ Options in `config.cfg` (all optional):
 
 In `debug = true` mode nothing is fetched; use `override_feature_flag()`.
 
+### Device id
+
+Set the project setting `posthog/device_id_salt` (for example `"mygame"`) to add a stable
+`device_id` property to every event: the first 16 characters of
+`sha256(OS.get_unique_id() + salt)`. Keep the salt once it ships, or devices get new ids.
+Without the setting, no `device_id` is sent.
+
 ## PostHog dashboards
 
 To see your metrics in PostHog, create a new
