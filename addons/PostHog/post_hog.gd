@@ -62,6 +62,11 @@ var _flags_loading := false
 ## Starts false so the cold-start foreground transition still emits.
 var _app_is_foreground := false
 
+## Whether window focus changes count as background / foreground. Off on
+## mobile, which sends real pause / resume notifications; on desktop and web
+## focus is the only signal available.
+var lifecycle_from_focus := not OS.get_name() in ["Android", "iOS"]
+
 func _ready() -> void:
 	_update_anonymous_events(anonymous_events)
 	_config = PostHogConfig.new()
@@ -312,12 +317,21 @@ static func _now_iso() -> String:
 ## Tracks app foreground state. While in the background the heartbeat is paused
 ## and an `$app_background` event marks the session end; on resume a fresh
 ## `$app_foreground` event re-opens activity.
+## On Android / iOS only a real pause counts: a full-screen ad or a system
+## dialog takes the window focus without pausing the app, and used to emit a
+## spurious background/foreground pair.
 func _notification(what: int) -> void:
 	match what:
-		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		NOTIFICATION_APPLICATION_PAUSED:
 			_on_app_background()
-		NOTIFICATION_APPLICATION_RESUMED, NOTIFICATION_WM_WINDOW_FOCUS_IN:
+		NOTIFICATION_APPLICATION_RESUMED:
 			_on_app_foreground()
+		NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+			if lifecycle_from_focus:
+				_on_app_background()
+		NOTIFICATION_WM_WINDOW_FOCUS_IN:
+			if lifecycle_from_focus:
+				_on_app_foreground()
 
 func _on_heartbeat_tick(_session_id: String) -> void:
 	capture(_config.heartbeat_event_name)
