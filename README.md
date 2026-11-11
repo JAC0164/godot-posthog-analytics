@@ -274,3 +274,8 @@ Dashboard example:
 ## License
 
 MIT License. See [LICENSE.txt](addons/PostHog/LICENSE.txt)
+
+Set the project setting `posthog/flags_min_interval` (seconds, for example `86400`) to skip the
+startup `/flags` request while the cached flags are younger than that. Each request counts
+against the PostHog feature-flag quota; `identify()`, `reset()` and `reload_feature_flags()`
+always ask. Default `0`: ask at every launch.

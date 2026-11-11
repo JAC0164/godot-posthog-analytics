@@ -105,7 +105,7 @@ func _ready() -> void:
 	if enabled and _config.flags_enabled:
 		if _flags.load_cache(distinct_id()):
 			feature_flags_loaded.emit.call_deferred()
-		if _config.flags_auto_load:
+		if _config.flags_auto_load and not _flags_cache_is_fresh():
 			reload_feature_flags()
 
 func capture(event_name: String, properties: Dictionary = {}) -> void:
@@ -189,6 +189,17 @@ func reload_feature_flags() -> void:
 	if _flags.apply_response(result["data"]):
 		_flags.save_cache(asked_id)
 		feature_flags_loaded.emit()
+
+## Startup only: the cached flags are recent enough to skip the `/flags` request.
+## Project setting `posthog/flags_min_interval` (seconds, 0 = ask at every launch):
+## each request counts against the PostHog flag quota. identify(), reset() and
+## reload_feature_flags() always ask.
+func _flags_cache_is_fresh() -> bool:
+	var min_interval := int(ProjectSettings.get_setting("posthog/flags_min_interval", 0))
+	if min_interval <= 0 or not _flags.loaded:
+		return false
+	var age := int(Time.get_unix_time_from_system()) - _flags.cached_at
+	return age >= 0 and age < min_interval
 
 ## True once flags were loaded (or restored from cache) at least once.
 func has_feature_flags() -> bool:

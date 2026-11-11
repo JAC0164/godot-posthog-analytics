@@ -12,6 +12,8 @@ var flags: Dictionary = {}
 var payloads: Dictionary = {}
 ## True once a response (or a cache for the current distinct_id) was applied.
 var loaded := false
+## Unix time of the last successful `/flags` response kept in the cache (0 = never).
+var cached_at := 0
 ## Local overrides for testing; they win over remote values.
 var overrides: Dictionary = {}
 ## Person properties sent with the `/flags` request (targeting by version, platform...).
@@ -103,7 +105,8 @@ func save_cache(distinct_id: String) -> void:
 	var file := FileAccess.open(CACHE_PATH, FileAccess.WRITE)
 	if file == null:
 		return
-	file.store_string(JSON.stringify({"id": distinct_id, "flags": flags, "payloads": payloads}))
+	cached_at = int(Time.get_unix_time_from_system())
+	file.store_string(JSON.stringify({"id": distinct_id, "flags": flags, "payloads": payloads, "at": cached_at}))
 	file.close()
 
 
@@ -123,6 +126,7 @@ func load_cache(distinct_id: String) -> bool:
 		return false
 	flags = data["flags"]
 	payloads = data.get("payloads", {}) if data.get("payloads") is Dictionary else {}
+	cached_at = int(data.get("at", 0))
 	loaded = true
 	return true
 
